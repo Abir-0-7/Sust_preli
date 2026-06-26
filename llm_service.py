@@ -3,13 +3,15 @@ import json
 import re
 import asyncio
 from openai import AsyncOpenAI
-OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
+from models import TicketRequest
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 client = AsyncOpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=OPENROUTER_API_KEY
+    base_url="https://api.groq.com/openai/v1",
+    api_key=GROQ_API_KEY
 )
-MODEL_NAME = "google/gemini-2.5-flash"
+MODEL_NAME = "llama3-70b-8192"
+
 
 def apply_safety_guardrails(response_dict: dict) -> dict:
     """
