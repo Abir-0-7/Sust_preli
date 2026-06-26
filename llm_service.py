@@ -9,15 +9,14 @@ client = AsyncGroq(api_key=GROQ_API_KEY)
 MODEL_NAME = "qwen/qwen3.6-27b"
 
 def clean_json_response(raw_text: str) -> str:
-    """Removes Markdown formatting (e.g., ```json ... ```) if the LLM includes it."""
+    """Extracts JSON even if the LLM adds conversational text or markdown before/after it."""
     clean_text = raw_text.strip()
-    if clean_text.startswith("```json"):
-        clean_text = clean_text[7:]
-    elif clean_text.startswith("```"):
-        clean_text = clean_text[3:]
-    if clean_text.endswith("```"):
-        clean_text = clean_text[:-3]
-    return clean_text.strip()
+    start_idx = clean_text.find('{')
+    end_idx = clean_text.rfind('}')
+    
+    if start_idx != -1 and end_idx != -1:
+        return clean_text[start_idx:end_idx+1]
+    return clean_text
 
 def apply_safety_guardrails(response_dict: dict) -> dict:
     """
@@ -37,7 +36,6 @@ def apply_safety_guardrails(response_dict: dict) -> dict:
 
     # Safety Rule 2A: Never confirm a refund/reversal to the CUSTOMER
     reply_promise_pattern = re.compile(r"(?i)(will refund|refund you|process a refund for you|issue a refund|refund is completed|reversing your|reverse the|unblock your account|get your money back)")
-    
     if reply_promise_pattern.search(customer_reply):
         response_dict["customer_reply"] = (
             "We have noted your concern. Our team will carefully review the case "
@@ -45,7 +43,7 @@ def apply_safety_guardrails(response_dict: dict) -> dict:
             "Please do not share your PIN or OTP with anyone."
         )
 
-    # Safety Rule 2B: Never explicitly COMMAND an unauthorized refund in the INTERNAL action
+    # Safety Rule 2B: Never explicitly COMMAND an unauthorized financial action internally
     action_promise_pattern = re.compile(r"(?i)(refund the customer immediately|unblock the account automatically)")
     if action_promise_pattern.search(next_action):
         response_dict["recommended_next_action"] = "Investigate the case and determine eligibility for financial action per company policy."
@@ -58,15 +56,16 @@ Your job is to analyze a customer complaint alongside their recent transaction h
 
 CRITICAL RULES:
 1. MATCHING: If the complaint perfectly matches one transaction, output its ID. 
-2. AMBIGUOUS: If NO transaction matches, or if MULTIPLE transactions plausibly match (e.g. duplicate amounts and you can't tell which is the correct one), you MUST set "relevant_transaction_id": null and "evidence_verdict": "insufficient_data". DO NOT GUESS.
-3. PHISHING/SCAM: If the user reports suspicious calls asking for OTP/PIN, set severity to "critical", department to "fraud_risk", and relevant_transaction_id to null.
-4. MERCHANT REFUNDS: If a user wants a refund for a completed merchant payment, route to "customer_support". You MAY advise them to contact the merchant directly.
-5. SAFETY: NEVER ask the user for PIN, OTP, or password. NEVER promise a refund to the user (instead, say "any eligible amount will be returned through official channels"). NEVER instruct the user to contact a scammer or suspicious unknown third party.
-6. LANGUAGE: Write the "customer_reply" in the SAME language as the user's complaint (English, Bangla, or Banglish).
+2. AMBIGUOUS MATCHES: If MULTIPLE transactions plausibly match (e.g. duplicate amounts on the same day) and you cannot confidently tell which one the user means, you MUST output "relevant_transaction_id": null (as a JSON null value, DO NOT use string "null"). Set "evidence_verdict": "insufficient_data", "case_type": "wrong_transfer" (or relevant type), and ask the user to clarify. DO NOT GUESS.
+3. AGENT ISSUES: If the user complains about a pending agent cash-in not reflecting, set "severity" to "high", "department" to "agent_operations", and "human_review_required" to true.
+4. PHISHING/SCAM: If the user reports suspicious calls asking for OTP/PIN, set severity to "critical", department to "fraud_risk", and relevant_transaction_id to null.
+5. MERCHANT REFUNDS: If a user wants a refund for a completed merchant payment, route to "customer_support".
+6. SAFETY: NEVER ask the user for PIN, OTP, or password. NEVER promise a refund to the user (instead, say "any eligible amount will be returned through official channels").
+7. LANGUAGE: Write the "customer_reply" in the SAME language as the user's complaint (English, Bangla, or Banglish).
 
 Respond ONLY with a valid JSON object matching this schema exactly:
 {
-  "relevant_transaction_id": "TXN-ID or null",
+  "relevant_transaction_id": "TXN-ID" or null,
   "evidence_verdict": "consistent | inconsistent | insufficient_data",
   "case_type": "wrong_transfer | payment_failed | refund_request | duplicate_payment | merchant_settlement_delay | agent_cash_in_issue | phishing_or_social_engineering | other",
   "severity": "low | medium | high | critical",
@@ -80,7 +79,7 @@ Respond ONLY with a valid JSON object matching this schema exactly:
 }"""
 
 async def process_ticket_with_llm(ticket: TicketRequest) -> dict:
-    """Calls Groq API with a 15-second timeout and applies safety filters."""
+    """Calls Groq API with a 15-second timeout, extracts JSON safely, and applies safety filters."""
     
     safe_fallback = {
         "ticket_id": ticket.ticket_id,
@@ -89,14 +88,13 @@ async def process_ticket_with_llm(ticket: TicketRequest) -> dict:
         "case_type": "other",
         "severity": "medium",
         "department": "customer_support",
-        "agent_summary": "Automated fallback triggered due to processing delay or missing evidence. Manual review required.",
+        "agent_summary": "Automated fallback triggered due to processing delay, formatting error, or missing evidence. Manual review required.",
         "recommended_next_action": "Review the customer's transaction history manually.",
         "customer_reply": "Thank you for reaching out. Our support team is currently reviewing your request. Please do not share your PIN or OTP with anyone.",
         "human_review_required": True,
         "confidence": 0.0,
         "reason_codes": ["fallback_triggered"]
     }
-
     user_prompt = f"""
 <transaction_history>
 {json.dumps([t.model_dump() for t in ticket.transaction_history], indent=2)}
@@ -107,6 +105,7 @@ async def process_ticket_with_llm(ticket: TicketRequest) -> dict:
 </user_complaint>
 """
     try:
+        
         response = await asyncio.wait_for(
             client.chat.completions.create(
                 model=MODEL_NAME,
@@ -115,19 +114,17 @@ async def process_ticket_with_llm(ticket: TicketRequest) -> dict:
                     {"role": "user", "content": user_prompt}
                 ],
                 response_format={"type": "json_object"},
-                temperature=0.1
+                temperature=0.1 
             ),
             timeout=15.0
         )
-        
+    
         raw_text = response.choices[0].message.content
         clean_json_str = clean_json_response(raw_text)
         response_dict = json.loads(clean_json_str)
-        
-      
+     
         response_dict["ticket_id"] = ticket.ticket_id
         
-      
         return apply_safety_guardrails(response_dict)
 
     except (asyncio.TimeoutError, Exception) as e:
