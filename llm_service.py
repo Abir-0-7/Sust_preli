@@ -2,16 +2,13 @@ import os
 import json
 import re
 import asyncio
-from openai import AsyncOpenAI
+from groq import AsyncGroq
 from models import TicketRequest
+
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+client = AsyncGroq(api_key=GROQ_API_KEY)
 
-client = AsyncOpenAI(
-    base_url="https://api.groq.com/openai/v1",
-    api_key=GROQ_API_KEY
-)
-MODEL_NAME = "llama3-70b-8192"
-
+MODEL_NAME = "llama3-8b-8192"
 
 def apply_safety_guardrails(response_dict: dict) -> dict:
     """
@@ -20,12 +17,14 @@ def apply_safety_guardrails(response_dict: dict) -> dict:
     """
     customer_reply = response_dict.get("customer_reply", "")
     next_action = response_dict.get("recommended_next_action", "")
+
     credential_pattern = re.compile(r"(?i)\b(pin|otp|password|card number)\b")
     if credential_pattern.search(customer_reply):
         response_dict["customer_reply"] = (
             "We have received your request. Our support team is currently reviewing your case. "
             "Please remember we will never ask for your PIN, OTP, or password. Do not share them with anyone."
         )
+
     promise_pattern = re.compile(r"(?i)\b(will refund|refund you|refund your|reversing|reverse the|unblock your)\b")
     if promise_pattern.search(customer_reply) or promise_pattern.search(next_action):
         response_dict["customer_reply"] = (
@@ -48,7 +47,7 @@ Your job is to analyze a customer complaint alongside their recent transaction h
 
 CRITICAL RULES:
 1. MATCHING: If the complaint perfectly matches one transaction, output its ID. 
-2. AMBIGUOUS: If NO transaction matches, or if MULTIPLE transactions plausibly match (e.g. duplicate amounts and you can't tell which is which), you MUST set "relevant_transaction_id": null and "evidence_verdict": "insufficient_data". DO NOT GUESS.
+2. AMBIGUOUS: If NO transaction matches, or if MULTIPLE transactions plausibly match, you MUST set "relevant_transaction_id": null and "evidence_verdict": "insufficient_data". DO NOT GUESS.
 3. SAFETY: NEVER ask the user for PIN, OTP, or password. NEVER promise a refund (say "any eligible amount will be returned through official channels").
 4. PHISHING: If the user reports suspicious calls asking for OTP/PIN, set severity to "critical", department to "fraud_risk", and relevant_transaction_id to null.
 5. LANGUAGE: Write the "customer_reply" in the SAME language as the user's complaint (English, Bangla, or Banglish).
@@ -70,7 +69,7 @@ Respond ONLY with a valid JSON object matching this schema exactly:
 """
 
 async def process_ticket_with_llm(ticket: TicketRequest) -> dict:
-    """Calls the LLM with a 15-second timeout and applies safety filters."""
+    """Calls Groq API with a 15-second timeout and applies safety filters."""
     safe_fallback = {
         "ticket_id": ticket.ticket_id,
         "relevant_transaction_id": None,
@@ -85,6 +84,8 @@ async def process_ticket_with_llm(ticket: TicketRequest) -> dict:
         "confidence": 0.0,
         "reason_codes": ["fallback_triggered"]
     }
+
+    # Sandboxing the complaint to prevent Prompt Injection
     user_prompt = f"""
 <transaction_history>
 {json.dumps([t.model_dump() for t in ticket.transaction_history], indent=2)}
@@ -115,5 +116,5 @@ async def process_ticket_with_llm(ticket: TicketRequest) -> dict:
         return apply_safety_guardrails(response_dict)
 
     except (asyncio.TimeoutError, Exception) as e:
-        print(f"LLM Error/Timeout for ticket {ticket.ticket_id}: {str(e)}")
+        print(f"Groq API Error/Timeout for ticket {ticket.ticket_id}: {str(e)}")
         return safe_fallback
