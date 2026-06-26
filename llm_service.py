@@ -114,7 +114,8 @@ async def process_ticket_with_llm(ticket: TicketRequest) -> dict:
                     {"role": "user", "content": user_prompt}
                 ],
                 response_format={"type": "json_object"},
-                temperature=0.1 
+                temperature=0.1,
+                max_tokens=1024
             ),
             timeout=15.0
         )
