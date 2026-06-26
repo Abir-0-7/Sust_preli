@@ -8,7 +8,7 @@ from models import TicketRequest
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 client = AsyncGroq(api_key=GROQ_API_KEY)
 
-MODEL_NAME = "llama3-8b-8192"
+MODEL_NAME = "openai/gpt-oss-20b"
 
 def apply_safety_guardrails(response_dict: dict) -> dict:
     """
