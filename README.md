@@ -2,9 +2,9 @@
 
 ### **SUST CSE Carnival 2026 · Codex Community Hackathon · Online Preliminary**
 
-When customers contact a financial service, they expect fast and accurate support—not generic replies.
+When customers contact a financial service, they expect fast and accurate support not generic replies.
 
-**QueueStorm Investigator** is an AI-powered SupportOps copilot that helps support teams understand customer complaints by comparing them with transaction history. Instead of simply classifying a message, it identifies the most relevant transaction, determines what likely happened, and recommends the appropriate next step.
+**QueueStorm Investigator** is an AI powered SupportOps copilot that helps support teams understand customer complaints by comparing them with transaction history. Instead of simply classifying a message, it identifies the most relevant transaction, determines what likely happened, and recommends the appropriate next step.
 
 Since financial support requires a high level of trust, the system is built with strict safety guardrails. It never asks customers for sensitive information, never makes unauthorized financial promises, and always prefers a safe response over an uncertain one.
 
@@ -42,7 +42,7 @@ POST /analyze-ticket
 
 **Architecture:** Hybrid (LLM + Rule-Based Validation)
 
-We use the language model for what it does best—understanding natural language and connecting customer complaints with transaction records.
+We use the language model for what it does best understanding natural language and connecting customer complaints with transaction records.
 
 Everything else is enforced by our application logic.
 
@@ -79,13 +79,13 @@ they are automatically replaced with a safer message indicating that **any eligi
 
 Every AI response is validated using **Pydantic V2**.
 
-If an unexpected value appears—for example, an invalid department name—the system automatically replaces it with a safe default instead of returning an invalid response.
+If an unexpected value appears for example, an invalid department name the system automatically replaces it with a safe default instead of returning an invalid response.
 
 ---
 
 ## **Reliable Fallback**
 
-The Groq API is protected by a 20-second timeout.
+The Groq API is protected by a 20 seconds timeout.
 
 If the model becomes unavailable or takes too long to respond, the application immediately returns a predefined, fully validated fallback response. This ensures the API always stays within the hackathon's response time requirements.
 
@@ -223,7 +223,7 @@ If a complaint doesn't provide enough information and no transaction can be matc
 
 ### **Cold Starts**
 
-Since the application is hosted on Render's free tier, the first request after a period of inactivity may take **30–50 seconds** while the service starts.
+Since the application is hosted on Render's free tier, the first request after a period of inactivity may take **30-50 seconds** while the service starts.
 
 ### **Data Privacy**
 
