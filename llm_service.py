@@ -3,19 +3,13 @@ import json
 import re
 import asyncio
 from openai import AsyncOpenAI
-from models import TicketRequest
-
-# Initialize OpenRouter client. 
-# Render will inject the OPENROUTER_API_KEY environment variable.
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 
 client = AsyncOpenAI(
     base_url="https://openrouter.ai/api/v1",
     api_key=OPENROUTER_API_KEY
 )
-
-# Gemini 1.5 Flash is chosen for sub-5s latency and excellent Bangla support
-MODEL_NAME = "google/gemini-1.5-flash"
+MODEL_NAME = "google/gemini-2.5-flash"
 
 def apply_safety_guardrails(response_dict: dict) -> dict:
     """
@@ -24,16 +18,12 @@ def apply_safety_guardrails(response_dict: dict) -> dict:
     """
     customer_reply = response_dict.get("customer_reply", "")
     next_action = response_dict.get("recommended_next_action", "")
-
-    # Safety Rule 1: Never ask for PIN, OTP, password, or card number
     credential_pattern = re.compile(r"(?i)\b(pin|otp|password|card number)\b")
     if credential_pattern.search(customer_reply):
         response_dict["customer_reply"] = (
             "We have received your request. Our support team is currently reviewing your case. "
             "Please remember we will never ask for your PIN, OTP, or password. Do not share them with anyone."
         )
-
-    # Safety Rule 2: Never confirm a refund, reversal, or unblock without authority
     promise_pattern = re.compile(r"(?i)\b(will refund|refund you|refund your|reversing|reverse the|unblock your)\b")
     if promise_pattern.search(customer_reply) or promise_pattern.search(next_action):
         response_dict["customer_reply"] = (
@@ -41,8 +31,6 @@ def apply_safety_guardrails(response_dict: dict) -> dict:
             "and any eligible amount will be returned through official channels. "
             "Please do not share your PIN or OTP with anyone."
         )
-
-    # Safety Rule 3: Do not instruct contact to third parties
     third_party_pattern = re.compile(r"(?i)\b(contact the merchant|call the agent|reach out to)\b")
     if third_party_pattern.search(customer_reply):
         response_dict["customer_reply"] = (
@@ -95,8 +83,6 @@ async def process_ticket_with_llm(ticket: TicketRequest) -> dict:
         "confidence": 0.0,
         "reason_codes": ["fallback_triggered"]
     }
-
-    # Sandboxing the complaint to prevent Prompt Injection
     user_prompt = f"""
 <transaction_history>
 {json.dumps([t.model_dump() for t in ticket.transaction_history], indent=2)}
