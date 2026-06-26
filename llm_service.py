@@ -4,6 +4,7 @@ import re
 import asyncio
 from groq import AsyncGroq
 from models import TicketRequest
+
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 client = AsyncGroq(api_key=GROQ_API_KEY)
 MODEL_NAME = "qwen/qwen3.6-27b"
@@ -51,6 +52,7 @@ def apply_safety_guardrails(response_dict: dict) -> dict:
     return response_dict
 
 def build_system_prompt() -> str:
+  
     return """You are the QueueStorm Investigator, an AI copilot for fintech support agents.
 Your job is to analyze a customer complaint alongside their recent transaction history.
 
@@ -63,23 +65,23 @@ CRITICAL RULES:
 6. SAFETY: NEVER ask the user for PIN, OTP, or password. NEVER promise a refund to the user (instead, say "any eligible amount will be returned through official channels").
 7. LANGUAGE: Write the "customer_reply" in the SAME language as the user's complaint (English, Bangla, or Banglish).
 
-Respond ONLY with a valid JSON object matching this schema exactly:
+Respond ONLY with a valid JSON object matching this schema exactly. BE EXTREMELY CONCISE in your text fields:
 {
   "relevant_transaction_id": "TXN-ID" or null,
   "evidence_verdict": "consistent | inconsistent | insufficient_data",
   "case_type": "wrong_transfer | payment_failed | refund_request | duplicate_payment | merchant_settlement_delay | agent_cash_in_issue | phishing_or_social_engineering | other",
   "severity": "low | medium | high | critical",
   "department": "customer_support | dispute_resolution | payments_ops | merchant_operations | agent_operations | fraud_risk",
-  "agent_summary": "1-2 sentence summary of the case",
-  "recommended_next_action": "Operational next step",
-  "customer_reply": "Safe reply to the customer in their language",
+  "agent_summary": "Strictly 1 short sentence summarizing the case",
+  "recommended_next_action": "Strictly 1 short operational next step",
+  "customer_reply": "Strictly 1 to 2 short sentences. Safe reply to the customer in their language",
   "human_review_required": true | false,
   "confidence": 0.9,
-  "reason_codes": ["array", "of", "short", "reasons"]
+  "reason_codes": ["array", "of", "1-word", "reasons"]
 }"""
 
 async def process_ticket_with_llm(ticket: TicketRequest) -> dict:
-    """Calls Groq API with a 15-second timeout, extracts JSON safely, and applies safety filters."""
+    """Calls Groq API with a 20-second timeout, extracts JSON safely, and applies safety filters."""
     
     safe_fallback = {
         "ticket_id": ticket.ticket_id,
@@ -95,6 +97,7 @@ async def process_ticket_with_llm(ticket: TicketRequest) -> dict:
         "confidence": 0.0,
         "reason_codes": ["fallback_triggered"]
     }
+    
     user_prompt = f"""
 <transaction_history>
 {json.dumps([t.model_dump() for t in ticket.transaction_history], indent=2)}
@@ -105,7 +108,6 @@ async def process_ticket_with_llm(ticket: TicketRequest) -> dict:
 </user_complaint>
 """
     try:
-        
         response = await asyncio.wait_for(
             client.chat.completions.create(
                 model=MODEL_NAME,
@@ -115,9 +117,9 @@ async def process_ticket_with_llm(ticket: TicketRequest) -> dict:
                 ],
                 response_format={"type": "json_object"},
                 temperature=0.1,
-                max_tokens=1024
+                max_tokens=4096
             ),
-            timeout=15.0
+            timeout=20.0
         )
     
         raw_text = response.choices[0].message.content
@@ -129,5 +131,7 @@ async def process_ticket_with_llm(ticket: TicketRequest) -> dict:
         return apply_safety_guardrails(response_dict)
 
     except (asyncio.TimeoutError, Exception) as e:
-        print(f"Groq API Error/Timeout for ticket {ticket.ticket_id}: {str(e)}")
+        error_msg = str(e).replace('"', "'") 
+        print(f"Groq API Error/Timeout for ticket {ticket.ticket_id}: {error_msg}")
+        safe_fallback["reason_codes"] = ["fallback_triggered", f"Error: {error_msg}"[:60]]
         return safe_fallback
