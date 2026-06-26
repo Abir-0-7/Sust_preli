@@ -1,68 +1,131 @@
- QueueStorm Investigator
+# **QueueStorm Investigator**
 
-SUST CSE Carnival 2026 · Codex Community Hackathon · Online Preliminary
+### **SUST CSE Carnival 2026 · Codex Community Hackathon · Online Preliminary**
 
-When money is on the line, customer support can't afford to guess. That's why we built QueueStorm Investigator—an AI-powered SupportOps copilot that acts as a lightning-fast detective for digital finance.
+When customers contact a financial service, they expect fast and accurate support—not generic replies.
 
-Instead of blindly classifying a customer's chat message, our API reads the complaint, cross-references their actual transaction history, and figures out exactly what went wrong. Most importantly? It does it all safely, without ever making unauthorized financial promises or asking for passwords.
+**QueueStorm Investigator** is an AI-powered SupportOps copilot that helps support teams understand customer complaints by comparing them with transaction history. Instead of simply classifying a message, it identifies the most relevant transaction, determines what likely happened, and recommends the appropriate next step.
 
-🌍 Live Deployment (Ready for Judging)
+Since financial support requires a high level of trust, the system is built with strict safety guardrails. It never asks customers for sensitive information, never makes unauthorized financial promises, and always prefers a safe response over an uncertain one.
 
-We've already deployed our API, so you don't need to spin anything up to evaluate us!
+---
 
-Base URL: https://sust-preli-qdwe.onrender.com
+# **Live Deployment**
 
-Health Check: GET https://sust-preli-qdwe.onrender.com/health
+The API is already deployed and ready for evaluation.
 
-Analyze Ticket: POST https://sust-preli-qdwe.onrender.com/analyze-ticket
+**Base URL**
 
-(Note: We're hosted on Render's free/starter tier, so the very first request might take a few extra seconds if the server is waking up from sleep. Subsequent requests will be lightning fast!)
+```text
+https://sust-preli-qdwe.onrender.com
+```
 
-🧠 Our AI Strategy: Brains + Brawn
+**Health Check**
 
-Model: qwen/qwen3.6-27b (via Groq)
-Approach: Hybrid (LLM + Strict Rule-Based Guardrails)
-
-Our philosophy is simple: Let the AI do the reasoning, but let the code do the enforcing.
-
-We chose the Qwen 3.6 27B model because it’s surprisingly smart at matching transaction timestamps and amounts, and it handles the mix of English, Bangla, and Banglish natively. Plus, Groq's LPU inference engine ensures we secure maximum performance points and stay well under the judges' 30-second timeout limit.
-
-However, we do not trust the LLM to govern itself. The AI handles the natural language understanding, and our Python layer acts as the absolute bouncer.
-
-🛡️ The "Ironclad" Safety Layer
-
-To score maximum points in the Safety & Escalation category, we built this system assuming the AI might occasionally try to give away the bank's money. We implemented strict safety guardrails that override the LLM:
-
-The Credential Firewall: If the AI's generated customer_reply accidentally asks for a "PIN", "OTP", "card number", or "password", a regex filter instantly intercepts it and rewrites the message to warn the user never to share those details.
-
-No Empty Promises: The AI cannot authorize refunds. If it tries to say "We will refund you" or "We are reversing the transaction", our system aggressively strips that out and replaces it with the safe, legal-approved phrase: "any eligible amount will be returned through official channels."
-
-Schema Coercion: Pydantic V2 strictly coerces any AI hallucinations. If the model invents a non-existent department, field validators catch it and silently default it to a safe value (like customer_support) so the API never crashes.
-
-The Ultimate Timeout Fallback: The Groq API call is wrapped in a strict 20-second timeout. If the LLM hangs, we immediately yield a hardcoded, perfectly validated JSON response. We will never fail the judge's 30-second timeout.
-
-📡 API Endpoints at a Glance
-
+```http
 GET /health
+```
 
-A quick pulse check for the automated judging harness.
+**Analyze Ticket**
 
+```http
+POST /analyze-ticket
+```
+
+> **Note:** The project is hosted on Render's free tier. If the service has been idle, the first request may take a little longer while the server wakes up.
+
+---
+
+# **How It Works**
+
+**Model:** `qwen/qwen3.6-27b` (via Groq)
+
+**Architecture:** Hybrid (LLM + Rule-Based Validation)
+
+We use the language model for what it does best—understanding natural language and connecting customer complaints with transaction records.
+
+Everything else is enforced by our application logic.
+
+The AI analyzes the complaint, identifies the most relevant transaction, summarizes the issue, and prepares a response. Before anything is returned to the user, our validation layer checks every field to ensure it follows predefined rules and company policies.
+
+This combination gives us the flexibility of an LLM with the reliability of deterministic code.
+
+---
+
+# **Safety First**
+
+Financial applications shouldn't rely solely on AI-generated responses. That's why every response passes through multiple safety checks.
+
+## **Credential Protection**
+
+If the generated reply accidentally asks for a customer's PIN, OTP, password, or card number, our safety filter immediately removes it and replaces it with a reminder **never to share sensitive information**.
+
+---
+
+## **No Unauthorized Refund Promises**
+
+The model is never allowed to promise refunds or transaction reversals.
+
+If it generates statements such as:
+
+* "We will refund your money."
+* "Your transaction has been reversed."
+
+they are automatically replaced with a safer message indicating that **any eligible amount will be processed through official channels after review.**
+
+---
+
+## **Strict Response Validation**
+
+Every AI response is validated using **Pydantic V2**.
+
+If an unexpected value appears—for example, an invalid department name—the system automatically replaces it with a safe default instead of returning an invalid response.
+
+---
+
+## **Reliable Fallback**
+
+The Groq API is protected by a 20-second timeout.
+
+If the model becomes unavailable or takes too long to respond, the application immediately returns a predefined, fully validated fallback response. This ensures the API always stays within the hackathon's response time requirements.
+
+---
+
+# **API Endpoints**
+
+## **GET `/health`**
+
+Returns a simple health status.
+
+```bash
 curl https://sust-preli-qdwe.onrender.com/health
+```
 
+**Response**
 
-Response:
-
+```json
 {
   "status": "ok"
 }
+```
 
+---
 
-POST /analyze-ticket
+## **POST `/analyze-ticket`**
 
-The brains of the operation. Feed it a complaint and a transaction list, and watch it work.
+Analyzes a customer complaint together with transaction history.
 
-Sample Request:
+The endpoint:
 
+* Finds the matching transaction
+* Determines the likely issue
+* Assigns severity
+* Routes the ticket to the correct department
+* Generates a safe customer response
+
+### **Sample Request**
+
+```bash
 curl -X POST https://sust-preli-qdwe.onrender.com/analyze-ticket \
 -H "Content-Type: application/json" \
 -d '{
@@ -80,10 +143,11 @@ curl -X POST https://sust-preli-qdwe.onrender.com/analyze-ticket \
     }
   ]
 }'
+```
 
+### **Sample Response**
 
-Sample Response:
-
+```json
 {
   "ticket_id": "TKT-001",
   "relevant_transaction_id": "TXN-9101",
@@ -91,9 +155,9 @@ Sample Response:
   "case_type": "wrong_transfer",
   "severity": "high",
   "department": "dispute_resolution",
-  "agent_summary": "Customer reports sending 5000 BDT via TXN-9101 to +8801719876543, which they now believe was the wrong recipient.",
-  "recommended_next_action": "Verify TXN-9101 details with the customer and initiate the wrong-transfer dispute workflow per policy.",
-  "customer_reply": "We have noted your concern about transaction TXN-9101. Please do not share your PIN or OTP with anyone. Our dispute team will review the case.",
+  "agent_summary": "Customer reports sending 5000 BDT via TXN-9101 to the wrong recipient.",
+  "recommended_next_action": "Verify the transaction details and begin the standard dispute process.",
+  "customer_reply": "We've received your report regarding transaction TXN-9101. Please don't share your PIN or OTP with anyone. Our support team will review the case and guide you through the next steps.",
   "human_review_required": true,
   "confidence": 0.9,
   "reason_codes": [
@@ -101,57 +165,66 @@ Sample Response:
     "transaction_match"
   ]
 }
+```
 
+---
 
-🚀 Local Setup (If you really want to)
+# **Running the Project Locally**
 
-Want to spin this up locally anyway? It takes less than two minutes.
+## **Requirements**
 
-1. Prerequisites
+* Python 3 or later
+* A valid Groq API key
 
-Python 3.9+
+### **Installation**
 
-A valid Groq API Key
-
-2. Installation
-
-Clone the repository and jump into the directory:
-
+```bash
 git clone <your-repo-url>
 cd <your-repo-directory>
 
-# Create and activate a fresh virtual environment
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install the essentials
+# Linux/macOS
+source venv/bin/activate
+
+# Windows
+venv\Scripts\activate
+
 pip install -r requirements.txt
+```
 
+### **Environment Variables**
 
-3. Environment Variables
+Create a `.env` file:
 
-Create a .env file in the root directory. (Note: As per the hackathon rules, we never commit real secrets to GitHub!)
-
+```env
 GROQ_API_KEY=your_real_groq_api_key_here
+```
 
+### **Start the Server**
 
-4. Boot the Server
-
-Run the FastAPI application.
-
+```bash
 uvicorn main:app --host 0.0.0.0 --port 8000
+```
 
+The application will be available at:
 
-Your local API is now live at: http://localhost:8000
+```text
+http://localhost:8000
+```
 
-⚠️ Known Limitations & Disclaimers
+---
 
-Let's be real—no hackathon project is perfect. Here is what we're keeping an eye on:
+# **Known Limitations**
 
-Super Ambiguous Complaints: If a user submits total gibberish without any matching transaction data, our AI is instructed not to guess. It conservatively defaults to insufficient_data and asks for clarification.
+### **Highly Ambiguous Complaints**
 
-Cold Starts: Because we are deployed on a serverless/free-tier hosting platform (Render), the API might take an extra 30-50 seconds to boot up if it hasn't received traffic in a while.
+If a complaint doesn't provide enough information and no transaction can be matched, the system avoids making assumptions. Instead, it classifies the case as `insufficient_data` and asks the customer for more details.
 
-Data Privacy Promise: This application uses synthetic data only. We are not connecting this to any real customer databases, live payment APIs, or actual production environments.
+### **Cold Starts**
 
-Built with ❤️ (and a lot of coffee) for the SUST CSE Carnival 2026.
+Since the application is hosted on Render's free tier, the first request after a period of inactivity may take **30–50 seconds** while the service starts.
+
+### **Data Privacy**
+
+This project uses **synthetic data only** and is intended for demonstration purposes. It does not connect to real banking systems, customer databases, or payment gateways.
