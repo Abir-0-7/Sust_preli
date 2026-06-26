@@ -4,11 +4,9 @@ import re
 import asyncio
 from groq import AsyncGroq
 from models import TicketRequest
-
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 client = AsyncGroq(api_key=GROQ_API_KEY)
-
-MODEL_NAME = "openai/gpt-oss-20b"
+MODEL_NAME = "qwen/qwen3.6-27b"
 
 def apply_safety_guardrails(response_dict: dict) -> dict:
     """
@@ -17,7 +15,6 @@ def apply_safety_guardrails(response_dict: dict) -> dict:
     """
     customer_reply = response_dict.get("customer_reply", "")
     next_action = response_dict.get("recommended_next_action", "")
-
     credential_pattern = re.compile(r"(?i)\b(pin|otp|password|card number)\b")
     if credential_pattern.search(customer_reply):
         response_dict["customer_reply"] = (
@@ -25,13 +22,15 @@ def apply_safety_guardrails(response_dict: dict) -> dict:
             "Please remember we will never ask for your PIN, OTP, or password. Do not share them with anyone."
         )
 
-    promise_pattern = re.compile(r"(?i)\b(will refund|refund you|refund your|reversing|reverse the|unblock your)\b")
+    promise_pattern = re.compile(r"(?i)(will refund|refund you|refund your|process a refund|issue a refund|refund is completed|reversing|reverse the|unblock your|get your money back)")
+    
     if promise_pattern.search(customer_reply) or promise_pattern.search(next_action):
         response_dict["customer_reply"] = (
             "We have noted your concern. Our team will carefully review the case "
             "and any eligible amount will be returned through official channels. "
             "Please do not share your PIN or OTP with anyone."
         )
+
     third_party_pattern = re.compile(r"(?i)\b(contact the merchant|call the agent|reach out to)\b")
     if third_party_pattern.search(customer_reply):
         response_dict["customer_reply"] = (
@@ -47,10 +46,10 @@ Your job is to analyze a customer complaint alongside their recent transaction h
 
 CRITICAL RULES:
 1. MATCHING: If the complaint perfectly matches one transaction, output its ID. 
-2. AMBIGUOUS: If NO transaction matches, or if MULTIPLE transactions plausibly match, you MUST set "relevant_transaction_id": null and "evidence_verdict": "insufficient_data". DO NOT GUESS.
+2. AMBIGUOUS: If NO transaction matches, or if MULTIPLE transactions plausibly match (e.g. duplicate amounts and you can't tell which is which), you MUST set "relevant_transaction_id": null and "evidence_verdict": "insufficient_data". DO NOT GUESS.
 3. SAFETY: NEVER ask the user for PIN, OTP, or password. NEVER promise a refund (say "any eligible amount will be returned through official channels").
 4. PHISHING: If the user reports suspicious calls asking for OTP/PIN, set severity to "critical", department to "fraud_risk", and relevant_transaction_id to null.
-5. LANGUAGE: Write the "customer_reply" in the SAME language as the user's complaint (English, Bangla, or Banglish).
+5. LANGUAGE: Write the "customer_reply" in the SAME language as the user's complaint (English, Bangla, or Banglish). Ensure Bangla responses are polite and professional.
 
 Respond ONLY with a valid JSON object matching this schema exactly:
 {
@@ -70,6 +69,7 @@ Respond ONLY with a valid JSON object matching this schema exactly:
 
 async def process_ticket_with_llm(ticket: TicketRequest) -> dict:
     """Calls Groq API with a 15-second timeout and applies safety filters."""
+    
     safe_fallback = {
         "ticket_id": ticket.ticket_id,
         "relevant_transaction_id": None,
@@ -84,8 +84,6 @@ async def process_ticket_with_llm(ticket: TicketRequest) -> dict:
         "confidence": 0.0,
         "reason_codes": ["fallback_triggered"]
     }
-
-    # Sandboxing the complaint to prevent Prompt Injection
     user_prompt = f"""
 <transaction_history>
 {json.dumps([t.model_dump() for t in ticket.transaction_history], indent=2)}
@@ -96,6 +94,7 @@ async def process_ticket_with_llm(ticket: TicketRequest) -> dict:
 </user_complaint>
 """
     try:
+       
         response = await asyncio.wait_for(
             client.chat.completions.create(
                 model=MODEL_NAME,
@@ -104,11 +103,11 @@ async def process_ticket_with_llm(ticket: TicketRequest) -> dict:
                     {"role": "user", "content": user_prompt}
                 ],
                 response_format={"type": "json_object"},
-                temperature=0.1
+                temperature=0.1 
             ),
             timeout=15.0
         )
-        
+
         raw_json = response.choices[0].message.content
         response_dict = json.loads(raw_json)
         response_dict["ticket_id"] = ticket.ticket_id
